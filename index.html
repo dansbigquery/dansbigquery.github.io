@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Title</title>
+    <meta charset="utf-8">
+    <style>
+      @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
+      @import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
+      @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+
+      body { font-family: 'Droid Serif'; }
+      h1, h2, h3 {
+        font-family: 'Yanone Kaffeesatz';
+        font-weight: normal;
+      }
+
+      blockquote{
+        font-style: italic;
+        font-size: 1.05em;
+      }
+
+      table td, table th{
+        border-bottom: thin solid #aaa;
+        border-right: thin solid #aaa;
+        padding: 3px;
+
+      }
+
+      img{
+        max-width: 100%;
+        margin: 0 auto;
+        text-align: center;
+      }
+
+      img.smaller{
+        max-width: 85%;
+      }
+
+      img.halfey{
+        max-width: 50%;
+      }
+      .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono'; }
+    </style>
+  </head>
+  <body>
+    <textarea id="source">
+
+class: center, middle
+
+# Exploring Data as a Journalist
+
+### With Google's BigQuery
+
+---
+
+# Exploring the taxi data
+
+<iframe width="100%" height="520" frameborder="0" src="http://dansn.cartodb.com/viz/1eba1b7e-b39e-11e4-befe-0e4fddd5de28/embed_map" allowfullscreen="" webkitallowfullscreen="" mozallowfullscreen="" oallowfullscreen="" msallowfullscreen=""></iframe>
+
+
+---
+
+
+## A basic question
+
+#### How many taxi rides have been taken since 2009?
+
+
+~~~sql
+SELECT COUNT(*)
+FROM [nyc-tlc:yellow.trips];
+~~~
+
+
+
+---
+
+
+## Breaking a big number down
+
+
+#### How _much per year_?
+
+~~~sql
+SELECT
+  YEAR(pickup_datetime) AS yr,    /* look at things by YEAR */
+  COUNT(*) AS trip_count
+FROM [nyc-tlc:yellow.trips]
+GROUP BY yr
+ORDER BY yr;
+~~~
+
+---
+
+### How it looks on the BigQuery interface
+
+![image](/images/count-by-taxi-query.png)
+
+
+---
+
+### Creating a visualization
+
+(pasting the results table into a spreadsheet)
+
+
+![image](/images/count-by-taxi-query-spreadsheet-chart.png)
+
+---
+
+class: center, middle, sec
+
+# Think about the details
+
+---
+
+## What does the table actually contain?
+
+Looking at the __schema__ of a data table can tell you what is possible:
+
+![image](/images/taxi-tips-schema-look.png)
+
+
+---
+
+## What do people tip?
+
+
+~~~sql
+SELECT
+  AVG(tip_amount * 100.0 / fare_amount)
+FROM [nyc-tlc:yellow.trips];
+~~~
+
+---
+
+#### Less than 10 percent??
+
+![image](/images/taxi-tips-first-query.png)
+
+
+---
+
+## Refine the requirements
+
+~~~sql
+SELECT
+  AVG(tip_amount * 100.0 / fare_amount)
+FROM [nyc-tlc:yellow.trips]
+WHERE
+  trip_distance >= 1        /* trip is at least 1 mile */
+  AND payment_type = 'CRD'  /* payment is with credit card */
+  AND fare_amount >= 5.00;  /* fare is at least $5 */
+~~~
+
+
+---
+
+#### 19.5 percent seems more like it
+
+![image](/images/taxi-tips-15-pct-result.png)
+
+---
+
+class: center, middle, sec
+
+# Break down the bigger numbers
+
+---
+
+
+## Should I tip more if it's late at night?
+
+
+~~~sql
+SELECT
+  HOUR(pickup_datetime) AS hr,
+  AVG(tip_amount * 100.0 / fare_amount)
+FROM [nyc-tlc:yellow.trips]
+WHERE
+    trip_distance >= 1        /* trip is at least 1 mile */
+    AND payment_type = 'CRD'  /* payment is with credit card */
+    AND fare_amount >= 5.00  /* fare is at least $5 */
+GROUP BY hr
+ORDER BY hr;
+~~~
+
+---
+
+#### ...Probably not?
+
+
+![image](/images/taxi-tips-by-hour-result.png)
+
+
+---
+
+## Be curious about distribution
+
+Are there tip-levels that people naturally gravitate to?
+
+~~~sql
+SELECT
+  ROUND(tip_amount * 100.0 / fare_amount) AS rounded_tip,
+  COUNT(*) AS trips
+FROM [nyc-tlc:yellow.trips]
+WHERE
+    trip_distance >= 1        /* trip is at least 1 mile */
+    AND payment_type = 'CRD'  /* payment is with credit card */
+    AND fare_amount >= 5.00  /* fare is at least $5 */
+    AND tip_amount > 0
+GROUP BY rounded_tip
+ORDER BY rounded_tip;
+~~~
+
+---
+
+#### Visualizing the distribution (with ggplot2)
+
+
+~~~R
+chart <- ggplot(df, aes(x = rounded_tip, y = trips))
+chart + geom_bar(stat = 'identity') +
+    scale_x_continuous(lim = c(0, 35)) +
+   scale_y_continuous(breaks = pretty_breaks())
+~~~
+
+<img src="/images/taxi-tips-histogram-ggplot2.png" alt="img" class="smaller">
+
+
+---
+
+## Take inspiration/confirmation from others
+
+[Bloomberg News: Here's How Much You Should Be Tipping Your Cab Driver](http://www.bloomberg.com/bw/articles/2014-07-31/heres-how-much-you-should-be-tipping-your-cab-driver)
+
+> A publicly available data set detailing every New York City taxi fare in 2013—that’s almost 100 million cab rides—reveals what a good, and bad, tip looks like:
+
+
+
+<img src="/images/taxi-tips-bloomberg-20pct.png" alt="img" class="halfey">
+
+---
+
+
+### Tangent: how do we pay for taxis?
+
+
+~~~sql
+SELECT payment_type,
+    COUNT(*) AS trips_count
+FROM [nyc-tlc:yellow.trips]
+GROUP BY payment_type
+ORDER BY trips_count DESC;
+~~~
+
+---
+
+#### Look at this messy data:
+
+![image](/images/taxi-tips-messy-types.png)
+
+
+---
+
+#### Making our own categories
+
+
+~~~sql
+SELECT
+    UPPER(payment_type) AS paytype,
+    COUNT(*) AS trips_count
+FROM [nyc-tlc:yellow.trips]
+WHERE UPPER(payment_type) IN ('CSH', 'CRD', 'CAS', 'CRE')
+GROUP BY paytype
+ORDER BY trips_count DESC;
+~~~
+
+![image](images/taxi-tips-types-simple-total.png)
+
+---
+
+### Categories within categories
+
+(Cash vs Credit per year)
+
+~~~sql
+SELECT
+  YEAR(pickup_datetime) AS yr
+  ROUND(tip_amount * 100.0 / fare_amount) AS rounded_tip,
+  COUNT(*) AS trips
+FROM [nyc-tlc:yellow.trips]
+WHERE
+    trip_distance >= 1        /* trip is at least 1 mile */
+    AND payment_type = 'CRD'  /* payment is with credit card */
+    AND fare_amount >= 5.00  /* fare is at least $5 */
+    AND tip_amount > 0
+GROUP BY rounded_tip, yr
+ORDER BY rounded_tip, yr;
+~~~
+
+Viz:
+
+~~~R
+chart <- ggplot(df_11, aes(x = yr, y = trips_count, fill = paytype))
+chart + geom_bar(stat = 'identity', width = 1, position = 'stack') +
+   scale_fill_manual(values = c("#aaddaa", "#333377"),
+                    labels = c("Cash", "Credit"))
+~~~
+
+
+
+---
+
+
+#### Cash vs. credit, by year
+
+
+![image](images/taxi-tips-types-by-year-bar.png)
+
+---
+
+### Going more granular: cash vs. credit, daily
+
+~~~sql
+SELECT
+    DATE(pickup_datetime) AS date,
+    CASE WHEN UPPER(payment_type) IN ('CSH', 'CAS')
+        THEN 'CASH'
+        ELSE 'CREDIT' END
+      AS paytype,
+    COUNT(*) AS trips_count
+FROM [nyc-tlc:yellow.trips]
+WHERE UPPER(payment_type) IN ('CSH', 'CRD', 'CAS', 'CRE')
+GROUP BY date, paytype
+ORDER BY date;
+~~~
+
+Viz code:
+
+~~~R
+chart <- ggplot(df_12, aes(x = as.Date(date), y = trips_count, color = paytype))
+chart + geom_point(alpha = 0.8, shape = 1, size = 0.9) +
+  scale_color_manual(values = c("#77aa77", "#3333ff"),
+                    labels = c("Cash", "Credit"))
+~~~
+
+---
+
+#### The decline of cash vs credit, day by day
+
+(probably too granular)
+
+
+![image](/images/taxi-tips-types-by-day.png)
+
+---
+
+
+class: center, middle, sec
+
+## Location matters
+
+
+---
+
+
+### Looking around my neighborhood
+
+
+
+~~~sql
+SELECT COUNT(*) AS trip_count
+FROM [nyc-tlc:yellow.trips]
+WHERE pickup_latitude BETWEEN 40.7280230366 AND 40.7308523822
+  AND pickup_longitude BETWEEN -73.9880597591 AND  -73.9830386639;
+~~~
+
+
+About 5.5 million trips:
+
+![image](/images/taxi-ev-count.png)
+
+---
+
+#### Nothing too interesting geographically...
+
+~~~R
+evil_bbox <- c(
+  left = -73.9880597591,
+  bottom = 40.7280230366,
+  right = -73.9830386639,
+  top = 40.7308523822
+)
+evil_maptiles <- get_stamenmap(evil_bbox, zoom = 18, maptype = 'toner-lite')
+
+ggmap(evil_maptiles) + geom_point(
+  data = df_25,
+  aes(x = rounded_lng, y = rounded_lat, size = trip_count))
+~~~
+
+---
+
+Trips located to nearest latitude/longitude point:
+
+![image](/images/taxi-ev-dot-map.png)
+
+---
+
+
+
+### Trips from my neighborhood to JFK
+
+By the hour:
+
+~~~R
+sql_35 <- "
+SELECT
+  HOUR(pickup_datetime) AS hr,
+  COUNT(*) AS trip_count
+FROM [nyc-tlc:yellow.trips]
+WHERE pickup_latitude BETWEEN 40.7280230366 AND 40.7308523822
+  AND pickup_longitude BETWEEN -73.9880597591 AND  -73.9830386639
+
+  AND dropoff_latitude BETWEEN 40.641898 AND 40.659925
+  AND dropoff_longitude BETWEEN -73.809503 AND -73.775857
+GROUP BY hr
+ORDER BY hr ASC;"
+df_35 <- query_exec(sql_35, project = bq_project_id, max_pages = Inf)
+~~~
+
+
+Visualizing it:
+
+~~~R
+ggplot(df_35, aes(x = hr, y = trip_count)) +
+    geom_bar(stat = "identity")
+~~~
+
+
+
+---
+
+By the hour (viz):
+
+![image](/images/taxi-ev-airport-hours.png)
+
+---
+
+
+### Average duration in minutes, by hour
+
+If I leave at a given hour, during a weekday, how long will my trip be?
+
+~~~R
+sql_36 <- "
+SELECT
+  HOUR(pickup_datetime) AS hr,
+  AVG((dropoff_datetime - pickup_datetime) / (60 * 1000000))
+    AS avg_duration_minutes
+FROM [nyc-tlc:yellow.trips]
+WHERE
+  DAYOFWEEK(pickup_datetime) BETWEEN 2 AND 6
+  AND pickup_latitude BETWEEN 40.7280230366 AND 40.7308523822
+  AND pickup_longitude BETWEEN -73.9880597591 AND  -73.9830386639
+  AND dropoff_latitude BETWEEN 40.641898 AND 40.659925
+  AND dropoff_longitude BETWEEN -73.809503 AND -73.775857
+GROUP BY hr
+ORDER BY hr ASC;"
+df_36 <- query_exec(sql_36, project = bq_project_id, max_pages = Inf)
+
+ggplot(df_36, aes(x = hr, y = avg_duration_minutes)) +
+    geom_bar(stat = "identity")
+~~~
+
+---
+
+#### Average minutes to JFK, by hour
+
+![image](/images/taxi-ev-avg-jfk-hours.png)
+
+
+
+<!-- ######################## -->
+<!-- END OF taxis -->
+<!-- ######################## -->
+<!-- ######################## -->
+
+
+---
+
+class: sec
+
+# NYPD stop and frisk
+
+- The data: [bigquery.cloud.google.com/table/cj-lab-bigquery:nypd.stopandfrisks](https://bigquery.cloud.google.com/table/cj-lab-bigquery:nypd.stopandfrisks)
+- NYPD homepage: [raw files](http://www.nyc.gov/html/nypd/html/analysis_and_planning/stop_question_and_frisk_report.shtml) and latest [database schema](http://www.nyc.gov/html/nypd/downloads/excel/analysis_and_planning/2014_sqf_file_spec.xlsx)
+
+
+
+---
+
+### U250 Form Part 1
+
+You can tell a lot about the data by [what kind of form](http://www.nyc.gov/html/nypd/downloads/pdf/public_information/TR534_FINALCompiled.pdf) has to be filled out:
+
+![image](/images/stop-frisk-u250-part-1.png)
+
+
+---
+
+### U250 Form Part 2
+
+
+![image](/images/stop-frisk-u250-part-2.png)
+
+
+
+---
+
+
+## Count the total
+
+~~~sql
+SELECT COUNT(*)
+FROM [nypd.stopandfrisks];
+~~~
+
+### Count and group by race
+
+~~~sql
+SELECT COUNT(*), race
+FROM [nypd.stopandfrisks]
+GROUP BY race;
+~~~
+
+---
+
+### Overall by race
+
+First, have to convert "P" and "Q" to "Hispanic", and do other categorizations...
+
+~~~sql
+SELECT
+      (CASE WHEN race == 'B' THEN 'Black'
+      WHEN race IN ('P', 'Q') THEN 'Hispanic'
+      ELSE 'Other' END)
+    AS race_cat,
+    COUNT(*) AS stop_count
+FROM [nypd.stopandfrisks]
+GROUP BY race_cat;
+~~~
+
+Pie chart code for R
+
+~~~R
+pie <- ggplot(df_55, aes(x = factor(1), y = stop_count, fill = factor(race_cat))) +
+  geom_bar(width = 1, stat = "identity") +
+  scale_fill_manual(values = c("#333333", "brown", "#ffcccc"))
+
+pie + coord_polar(theta = "y");
+~~~
+
+
+
+---
+
+### A horrible pie chart
+
+
+![image](/images/nypd-stop-and-frisk-race-pie.png)
+
+---
+
+### R: Overall by year
+
+~~~R
+sql <- "
+SELECT
+      (CASE WHEN race == 'B' THEN 'Black'
+      WHEN race IN ('P', 'Q') THEN 'Hispanic'
+      ELSE 'Other' END)
+    AS race_cat,
+    CAST(YEAR(timestamp_stop) AS INTEGER) AS year,
+    COUNT(*) AS stop_count
+FROM [nypd.stopandfrisks]
+GROUP BY race_cat, year
+HAVING year > 2002;"
+df <- query_exec(sql, project = bq_project_id, max_pages = Inf)
+
+
+chart <- ggplot(df, aes(x = year, y = stop_count, fill = factor(race_cat))) +
+  geom_bar(stat="identity",colour ="gray") + scale_fill_brewer() + geom_smooth();
+
+chart +
+  facet_grid(race_cat ~ .) + scale_y_continuous(labels = comma) +
+    scale_x_continuous(breaks = pretty_breaks());
+
+~~~
+
+
+---
+
+### A steep decline post-2012
+
+![image](/images/nypd-histogram-race-year.png)
+
+
+
+## Overall arrest rate by race and year
+
+For those who were stopped, how many were actually arrested?
+
+~~~sql
+SELECT
+    arrests.year AS year,
+    arrests.race_cat AS race_cat,
+    ROUND(((arrests_count * 100.0) / stop_count), 1) AS arrests_rate
+FROM (
+  SELECT
+      CAST(YEAR(timestamp_stop) AS INTEGER) AS year,
+      (CASE WHEN race == 'B' THEN 'Black'
+        WHEN race IN ('P', 'Q') THEN 'Hispanic'
+        ELSE 'Other' END)
+      AS race_cat,
+      COUNT(*) AS arrests_count
+       FROM [nypd.stopandfrisks]
+       WHERE arstmade = 'Y'
+       GROUP BY year, race_cat
+       HAVING year > 2002
+       ) AS arrests
+INNER JOIN
+    (SELECT
+      (CASE WHEN race == 'B' THEN 'Black'
+      WHEN race IN ('P', 'Q') THEN 'Hispanic'
+      ELSE 'Other' END)
+    AS race_cat,
+    CAST(YEAR(timestamp_stop) AS INTEGER) AS year,
+    COUNT(*) AS stop_count
+    FROM [nypd.stopandfrisks]
+     GROUP BY year, race_cat) AS all_stops
+
+  ON all_stops.race_cat = arrests.race_cat
+     AND all_stops.year = arrests.year
+
+ORDER BY race_cat, year
+~~~
+
+---
+
+### Better quality stops?
+
+As stops have decreased, the proportion of stops that lead to arrests has increased.
+
+
+![image](/images/nypd-histogram-race-arrests-year.png)
+
+
+---
+
+# Forceful stops and arrests
+
+
+
+
+Via the [New York Times](http://www.nytimes.com/2012/08/16/nyregion/in-police-stop-data-pockets-where-force-is-used-more-often.html):
+
+> The 46th Precinct has about 128,000 residents and includes the predominantly black and Hispanic neighborhoods of University Heights, Morris Heights and Fordham. Officers used force in 58 percent of stops last year, the highest rate of any of the city’s 76 precincts, according to The Times’s analysis. Yet, just 3 percent of stops that involved force resulted in an arrest — the lowest rate in the city. By contrast, officers in the 111th Precinct in the Bayside neighborhood of Queens, which is 87 percent white and Asian, were the least likely to apply force, using it in 4.7 percent of stops. Yet 40 percent of those stops ended in an arrest.
+
+For year 2011:
+
+| Precinct | Used Force | Force + Arrests |
+|----------|------------|-----------------|
+|       46 | 58.0%        | 3%            |
+|      111 | 4.7%       | 40%             |
+
+
+
+---
+
+### Putting Precincts 46 and 111 in perspective
+
+Precincts <strong style="color:red">46</strong> and <strong style="color:green">111</strong> are in
+<span style="color:red">red</span> and <span class="color:green">green</span>, respectively:
+
+
+![image](/images/nypd-scatterplot-2011-force-arrests.png)
+
+
+---
+
+### Perspective over time
+
+The NYT's analysis looked at 2011 -- how have precincts changed? Even without an interactive map we can see some movement:
+
+![image](/images/nypd-scatterplot-2011-force-arrests-grid.png)
+
+---
+
+Sometimes it's helpful to condense the comparisons. Here's what the trendlines look when we divide the data into two eras:
+
+##### 2009 to 2011
+
+![image](/images/nypd-scatterplot-2011-force-arrests-2009-2011.png)
+
+
+
+---
+
+Remember that a visualization is not the end-all of data work: each of these outliers in 2014 may have a story:
+
+##### 2012 to 2014
+
+![image](/images/nypd-scatterplot-2011-force-arrests-2012-2014.png)
+
+
+---
+
+class: center, middle, sec
+
+# Individual stories
+
+
+---
+
+
+## Adrian Schoolcraft
+
+
+<img src="images/adrian-schoolcraft-portrait-nyt.jpg" "Schoolcraft" style="width: 125px; float: left; padding: 0 10px 10px 0px;">
+
+
+[Officer Who Disclosed Police Misconduct Settles Suit](http://www.nytimes.com/2015/09/30/nyregion/officer-who-disclosed-police-misconduct-settles-suit.html?_r=0)
+
+
+[The NYPD Tapes](http://www.villagevoice.com/news/the-nypd-tapes-part-2-6428840)
+
+> The pressure for 250s was so great, Schoolcraft says, he witnessed officers in a patrol van at the end of the month simply filling in 250 forms just to hit the quota. He says officers would write that a person refused to give his name to avoid inventing a name. These were known in the precinct as "Ghost 250s." (A Bronx officer was once caught filing false 250s using names from gravestones in a cemetery near his precinct.)...
+
+
+---
+
+
+### [Alvin Cruz](http://www.thenation.com/article/secret-recording-stop-and-frisk-makes-it-federal-court/)
+
+>  On June 3, 2011, three plainclothes New York City Police officers stopped a Harlem teenager named Alvin and two of the officers questioned and frisked him while the third remained in their unmarked car. Alvin secretly captured the interaction on his cell phone, and the resulting audio is one of the only known recordings of stop-and-frisk in action.
+
+![image](/images/alvin-cruz-nation.jpg)
+
+
+---
+
+What are the implications that he's not easily findable in the database?
+
+~~~sql
+SELECT timestamp_stop, age, searched,
+  arstmade, explnstp, offunif, pf_hands, pf_other, crimsusp,
+  stname, stinter, crossst
+FROM [nypd.stopandfrisks]
+WHERE DATE(timestamp_stop) BETWEEN "2011-06-02" AND "2011-06-04"
+  AND age BETWEEN 15 AND 17
+  AND sex = 'M'
+  AND race = 'Q'
+  AND city = 'MANHATTAN'
+  AND frisked = 'Y';
+~~~
+
+![image](/images/alvin-cruz-sql.png)
+
+
+---
+
+## Stop and Frisk "Receipts"
+
+via the [NYMag](http://nymag.com/daily/intelligencer/2015/09/dont-forget-your-nypd-stop-and-frisk-receipt.html):
+
+![/image](images/stop-frisk-receipt.png)
+
+> At the recommendation of the federal monitor assigned to the NYPD, police officers have begun issuing "receipts" to people they question and/or frisk but don't arrest. The short "What Is A Stop?" form requires a cop to provide his or her name and badge number, as well as a reason for the stop in question. Explanation options include "concealing or possessing a weapon," "engaging in a drug transaction," "proximity to the scene of a crime," "matches a specific suspect description," "acting as a lookout," "casing a victim or location," and, of course, "other."
+
+
+
+---
+
+
+<!-- ######################## -->
+
+    </textarea>
+    <script src="https://gnab.github.io/remark/downloads/remark-latest.min.js">
+    </script>
+    <script>
+      var slideshow = remark.create();
+    </script>
+  </body>
+</html>
